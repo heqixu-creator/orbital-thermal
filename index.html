@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orbital AI Thermal Simulator</title>
+  <meta name="description" content="Two-node thermal simulation of AI chips rejecting heat through a spacecraft radiator in vacuum.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2307111c'/%3E%3Crect x='5' y='8' width='8' height='16' fill='%23f0a35e'/%3E%3Cpath d='M16 7h3v18h-3M21 7h3v18h-3M26 7h2v18h-2' fill='%233ddecb'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#workspace">Skip to the simulation</a>
+  <div class="app">
+    <header class="site-header">
+      <div class="top">
+        <div class="brand">
+          <svg class="mark" width="36" height="36" viewBox="0 0 36 36" aria-hidden="true">
+            <rect x="1" y="1" width="34" height="34" rx="8" fill="#0c1b2c" stroke="#2a5870"/>
+            <rect x="6" y="9" width="8" height="18" rx="1.5" fill="#f0a35e"/>
+            <path d="M17 8h3.2v20H17M22 8h3.2v20H22M27.2 8H30v20h-2.8" fill="#3ddecb"/>
+          </svg>
+          <div>
+            <p class="eyebrow">Vacuum thermal control</p>
+            <h1>ORBITAL AI THERMAL SIMULATOR</h1>
+            <p class="lede">How much compute can a shadowed radiator reject before the chips have to throttle? A two-node model of conduction inside the spacecraft and infrared emission to deep space.</p>
+          </div>
+        </div>
+        <div class="command">
+          <div class="status-row">
+            <div class="clock" aria-live="polite">T+ <strong id="clock">00:00</strong> <span>/ <span id="clock-total">60:00</span></span></div>
+            <div class="pill ready" id="run-state"><i></i><span>Ready</span></div>
+            <div class="pill ok" id="thermal-state"><i></i><span>Nominal</span></div>
+          </div>
+          <div class="controls">
+            <button type="button" id="btn-start">Start</button>
+            <button type="button" id="btn-pause" disabled>Pause</button>
+            <button type="button" id="btn-step">Step 30 s</button>
+            <button type="button" id="btn-reset">Reset</button>
+            <label class="speed">
+              <span>Spacecraft time</span>
+              <select id="speed" aria-label="Simulation speed">
+                <option value="1">1× realtime</option>
+                <option value="30">30×</option>
+                <option value="60" selected>60× · 1 min/s</option>
+                <option value="300">300× · 5 min/s</option>
+                <option value="3600">3600× · 1 h/s</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="progress" aria-hidden="true"><span id="progress"></span></div>
+    </header>
+
+    <p class="banner"><strong>Illustrative parameters only.</strong> This simulation does not reproduce Google’s satellite specifications, or the hardware of any other spacecraft. The numbers are a teaching model of the thermal problem, not a flight prediction.</p>
+    <noscript><p class="banner">This simulation needs JavaScript. The physics runs entirely in your browser; nothing is uploaded.</p></noscript>
+
+    <main id="workspace" class="workspace">
+      <section class="panel" aria-labelledby="param-heading">
+        <h2 id="param-heading">System parameters</h2>
+        <p class="hint">Physical inputs take effect immediately. Initial temperatures are applied on reset.</p>
+
+        <h3 class="group-title">Compute load</h3>
+        <div class="field">
+          <div class="field-top">
+            <label for="nChips">Number of chips</label>
+            <button type="button" class="tip" aria-label="About number of chips">i<span class="tip-bubble" role="tooltip">Processors lumped into the single chip node. Heat generation scales directly with this count.</span></button>
+            <input id="nChips" type="number" min="1" max="16" step="1" value="4">
+            <span class="unit"></span>
+          </div>
+          <input id="nChips-range" type="range" min="1" max="16" step="1" value="4" aria-label="Number of chips">
+        </div>
+        <div class="field">
+          <div class="field-top">
+            <label for="powerPerChip">Power per chip</label>
+            <button type="button" class="tip" aria-label="About power per chip">i<span class="tip-bubble" role="tooltip">Electrical draw of one chip at full workload. In this model every watt becomes heat in the chip node.</span></button>
+            <input id="powerPerChip" type="number" min="0" max="1000" step="5" value="200">
+            <span class="unit">W</span>
+          </div>
+          <input id="powerPerChip-range" type="range" min="0" max="1000" step="5" value="200" aria-label="Power per chip">
+        </div>
+        <div class="field">
+          <div class="field-top">
+            <label for="workload">Workload fraction</label>
+            <button type="button" class="tip" aria-label="About workload fraction">i<span class="tip-bubble" role="tooltip">Commanded compute load. The throttle can only reduce the effective load. It never raises it above this setting.</span></button>
+            <input id="workload" type="number" min="0" max="100" step="1" value="100">
+            <span class="unit">%</span>
+          </div>
+          <input id="workload-range" type="range" min="0" max="100" step="1" value="100" aria-label="Workload fraction">
+        </div>
+
+        <h3 class="group-title">Radiator</h3>
+        <div class="field">
+          <div class="field-top">
+            <label for="area">Surface area</label>
+            <button type="button" class="tip" aria-label="About radiator area">i<span class="tip-bubble" role="tooltip">Total effective radiating area. Count each radiating face once. If both sides of a panel radiate to space, add those areas into this single number.</span></button>
+            <input id="area" type="number" min="0.2" max="20" step="0.1" value="4">
+            <span class="unit">m²</span>
+          </div>
+          <input id="area-range" type="range" min="0.2" max="20" step="0.1" value="4" aria-label="Radiator surface area">
+        </div>
+        <div class="field">
+          <div class="field-top">
+            <label for="emissivity">Emissivity</label>
+            <button type="button" class="tip" aria-label="About emissivity">i<span class="tip-bubble" role="tooltip">Infrared emissivity, from a poor emitter near 0 to an ideal emitter at 1. Higher emissivity rejects more heat at the same temperature.</span></button>
+            <input id="emissivity" type="number" min="0.05" max="1" step="0.01" value="0.90">
+            <span class="unit"></span>
+          </div>
+          <input id="emissivity-range" type="range" min="0.05" max="1" step="0.01" value="0.90" aria-label="Radiator emissivity">
+        </div>
+
+        <h3 class="group-title">Thermal path</h3>
+        <div class="field">
+          <div class="field-top">
+            <label for="conductance">Conductance</label>
+            <button type="button" class="tip" aria-label="About thermal conductance">i<span class="tip-bubble" role="tooltip">Heat flow from the chips to the radiator for each kelvin of temperature difference. Straps, heat pipes, and joints are folded into this one number, G.</span></button>
+            <input id="conductance" type="number" min="1" max="400" step="1" value="100">
+            <span class="unit">W/K</span>
+          </div>
+          <input id="conductance-range" type="range" min="1" max="400" step="1" value="100" aria-label="Thermal conductance">
+        </div>
+        <div class="field">
+          <div class="field-top">
+            <label for="cChip">Chip capacitance</label>
+            <button type="button" class="tip" aria-label="About chip thermal capacitance">i<span class="tip-bubble" role="tooltip">Energy required to warm the lumped chip node by 1 K. A larger value slows temperature changes. It does not move the final equilibrium.</span></button>
+            <input id="cChip" type="number" min="200" max="20000" step="100" value="2000">
+            <span class="unit">J/K</span>
+          </div>
+          <input id="cChip-range" type="range" min="200" max="20000" step="100" value="2000" aria-label="Chip thermal capacitance">
+        </div>
+        <div class="field">
+          <div class="field-top">
+            <label for="cRadiator">Radiator capacitance</label>
+            <button type="button" class="tip" aria-label="About radiator thermal capacitance">i<span class="tip-bubble" role="tooltip">Thermal mass of the radiator node, in J/K. It sets the warm-up time. The steady temperature depends on area, emissivity, and heat load, not on this mass.</span></button>
+            <input id="cRadiator" type="number" min="500" max="80000" step="500" value="10000">
+            <span class="unit">J/K</span>
+          </div>
+          <input id="cRadiator-range" type="range" min="500" max="80000" step="500" value="10000" aria-label="Radiator thermal capacitance">
+        </div>
+
+        <h3 class="group-title">Environment and limit</h3>
+        <div class="field">
+          <div class="field-top">
+            <label for="pEnvironment">Environmental heat</label>
+            <button type="button" class="tip" aria-label="About environmental heat load">i<span class="tip-bubble" role="tooltip">Extra power absorbed by the radiator, in watts. Use it for sunlight, albedo, or planetary infrared. The base model assumes the panel is shielded from direct sun, so the default is zero.</span></button>
+            <input id="pEnvironment" type="number" min="0" max="2000" step="10" value="0">
+            <span class="unit">W</span>
+          </div>
+          <input id="pEnvironment-range" type="range" min="0" max="2000" step="10" value="0" aria-label="Environmental heat load">
+        </div>
+        <div class="field">
+          <div class="field-top">
+            <label for="tMaxC">Maximum chip temperature</label>
+            <button type="button" class="tip" aria-label="About the maximum chip temperature">i<span class="tip-bubble" role="tooltip">Operating limit. Workload falls linearly across the 2 °C below this temperature and is cut off at the limit. The status flag adds 0.5 °C of hysteresis.</span></button>
+            <input id="tMaxC" type="number" min="40" max="120" step="1" value="85">
+            <span class="unit">°C</span>
+          </div>
+          <input id="tMaxC-range" type="range" min="40" max="120" step="1" value="85" aria-label="Maximum chip temperature">
+        </div>
+
+        <h3 class="group-title">Run setup</h3>
+        <p class="group-note">Initial temperatures are applied when you reset or load a preset.</p>
+        <div class="field">
+          <div class="field-top">
+            <label for="tChip0C">Initial chip temperature</label>
+            <button type="button" class="tip" aria-label="About the initial chip temperature">i<span class="tip-bubble" role="tooltip">Chip-node temperature used at reset. Changing it while a run is in progress does not move the current temperature.</span></button>
+            <input id="tChip0C" type="number" min="-60" max="100" step="1" value="25">
+            <span class="unit">°C</span>
+          </div>
+          <input id="tChip0C-range" type="range" min="-60" max="100" step="1" value="25" aria-label="Initial chip temperature">
+        </div>
+        <div class="field">
+          <div class="field-top">
+            <label for="tRad0C">Initial radiator temperature</label>
+            <button type="button" class="tip" aria-label="About the initial radiator temperature">i<span class="tip-bubble" role="tooltip">Radiator temperature used at reset. The live temperature keeps evolving from wherever the run already is.</span></button>
+            <input id="tRad0C" type="number" min="-60" max="100" step="1" value="25">
+            <span class="unit">°C</span>
+          </div>
+          <input id="tRad0C-range" type="range" min="-60" max="100" step="1" value="25" aria-label="Initial radiator temperature">
+        </div>
+        <div class="field">
+          <div class="field-top">
+            <label for="durationMin">Simulation duration</label>
+            <button type="button" class="tip" aria-label="About simulation duration">i<span class="tip-bubble" role="tooltip">Length of the run in minutes of spacecraft time. The speed control only changes how fast wall-clock time maps onto this clock.</span></button>
+            <input id="durationMin" type="number" min="5" max="180" step="5" value="60">
+            <span class="unit">min</span>
+          </div>
+          <input id="durationMin-range" type="range" min="5" max="180" step="5" value="60" aria-label="Simulation duration">
+        </div>
+        <button type="button" class="text-btn" id="btn-defaults">Restore illustrative defaults</button>
+      </section>
+
+      <section class="panel" aria-labelledby="viz-heading">
+        <h2 id="viz-heading">Satellite thermal path</h2>
+        <p class="hint">Four chips share one temperature. The link is the conductance G. The panel radiates to a 3 K background and is treated as shielded from direct sun.</p>
+        <svg class="diagram" viewBox="0 0 780 400" role="img" aria-labelledby="viz-heading diagram-caption">
+          <defs>
+            <marker id="arrow-hot" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+              <path d="M0,0 L7,3 L0,6 Z" fill="#f0a35e"/>
+            </marker>
+            <marker id="arrow-cold" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+              <path d="M0,0 L7,3 L0,6 Z" fill="#6fd4e8"/>
+            </marker>
+            <marker id="arrow-env" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+              <path d="M0,0 L7,3 L0,6 Z" fill="#d6d56a"/>
+            </marker>
+          </defs>
+
+          <rect x="28" y="48" width="292" height="312" rx="18" fill="#0c1c2e" stroke="#3a627e" stroke-width="1.5"/>
+          <text class="kicker" x="46" y="76">COMPUTE BUS</text>
+          <text class="tiny" id="chip-caption" x="46" y="96">FOUR CHIPS, ONE NODE</text>
+
+          <g id="die-0" class="die">
+            <rect class="die-body" x="46" y="114" width="112" height="78" rx="8" fill="#8fb56a"/>
+            <rect x="56" y="124" width="16" height="14" rx="2" fill="rgba(7,16,28,0.5)"/>
+            <text class="die-index" x="64" y="135" text-anchor="middle">1</text>
+          </g>
+          <g id="die-1" class="die">
+            <rect class="die-body" x="172" y="114" width="112" height="78" rx="8" fill="#8fb56a"/>
+            <rect x="182" y="124" width="16" height="14" rx="2" fill="rgba(7,16,28,0.5)"/>
+            <text class="die-index" x="190" y="135" text-anchor="middle">2</text>
+          </g>
+          <g id="die-2" class="die">
+            <rect class="die-body" x="46" y="206" width="112" height="78" rx="8" fill="#8fb56a"/>
+            <rect x="56" y="216" width="16" height="14" rx="2" fill="rgba(7,16,28,0.5)"/>
+            <text class="die-index" x="64" y="227" text-anchor="middle">3</text>
+          </g>
+          <g id="die-3" class="die">
+            <rect class="die-body" x="172" y="206" width="112" height="78" rx="8" fill="#8fb56a"/>
+            <rect x="182" y="216" width="16" height="14" rx="2" fill="rgba(7,16,28,0.5)"/>
+            <text class="die-index" x="190" y="227" text-anchor="middle">4</text>
+          </g>
+          <text class="temp-readout" id="chip-temp-label" x="46" y="312">25.00 °C</text>
+          <text class="kelvin-readout" id="chip-kelvin-label" x="46" y="330">298.15 K</text>
+          <text class="tiny" id="bus-power" x="46" y="348">800 W commanded</text>
+
+          <text class="tiny" id="link-name" x="402" y="156" text-anchor="middle">THERMAL LINK</text>
+          <rect x="330" y="176" width="148" height="26" rx="13" fill="#10283a" stroke="#3d6a84"/>
+          <line id="q-flow" x1="344" y1="189" x2="462" y2="189" stroke="#f0a35e" stroke-width="2.5" marker-end="url(#arrow-hot)"/>
+          <text class="tiny" id="q-label" x="404" y="220" text-anchor="middle">Q = 0.0 W</text>
+          <text class="tiny" id="g-label" x="404" y="238" text-anchor="middle">G = 100 W/K</text>
+
+          <g id="env-group" visibility="hidden">
+            <line x1="590" y1="22" x2="590" y2="46" stroke="#d6d56a" stroke-width="1.6" marker-end="url(#arrow-env)"/>
+            <text class="tiny" id="env-label" x="600" y="34">ENV</text>
+          </g>
+
+          <rect id="radiator-panel" x="492" y="48" width="176" height="312" rx="8" fill="#8fb56a" stroke="#d7e4ef" stroke-width="1.2"/>
+          <rect x="508" y="58" width="144" height="44" rx="6" fill="rgba(7,16,28,0.55)"/>
+          <g id="fins" stroke="rgba(7,16,28,0.4)" stroke-width="1.4">
+            <line x1="506" y1="108" x2="654" y2="108"/>
+            <line x1="506" y1="124" x2="654" y2="124"/>
+            <line x1="506" y1="140" x2="654" y2="140"/>
+            <line x1="506" y1="156" x2="654" y2="156"/>
+            <line x1="506" y1="172" x2="654" y2="172"/>
+            <line x1="506" y1="188" x2="654" y2="188"/>
+            <line x1="506" y1="204" x2="654" y2="204"/>
+            <line x1="506" y1="220" x2="654" y2="220"/>
+            <line x1="506" y1="236" x2="654" y2="236"/>
+            <line x1="506" y1="252" x2="654" y2="252"/>
+            <line x1="506" y1="268" x2="654" y2="268"/>
+          </g>
+          <text class="kicker" x="580" y="78" text-anchor="middle" fill="#07111c">RADIATOR</text>
+          <text class="tiny" x="580" y="96" text-anchor="middle" fill="#142033">SHADOWED PANEL</text>
+          <rect x="514" y="292" width="132" height="48" rx="6" fill="rgba(7,16,28,0.55)"/>
+          <text class="temp-readout" id="rad-temp-label" x="580" y="314" text-anchor="middle">25.00 °C</text>
+          <text class="tiny" id="rad-spec" x="580" y="332" text-anchor="middle">4.00 m² · ε 0.90</text>
+
+          <g id="ir-group">
+            <path d="M678 150 q 26 18 0 40" fill="none" stroke="#ff8d4a" stroke-width="1.6"/>
+            <path d="M694 132 q 38 32 0 72" fill="none" stroke="#ff8d4a" stroke-width="1.6"/>
+            <path d="M710 114 q 50 46 0 108" fill="none" stroke="#ff8d4a" stroke-width="1.6"/>
+            <text class="tiny" x="724" y="250">IR TO</text>
+            <text class="tiny" x="724" y="264">SPACE</text>
+          </g>
+        </svg>
+        <div class="scale">
+          <span>−40 °C</span>
+          <div class="scale-bar" role="img" aria-label="Colour scale from cold blue through amber to hot red"></div>
+          <span>100 °C</span>
+        </div>
+        <p class="caption" id="diagram-caption">The drawing keeps four dies. The lumped node scales with the chip count you set. Area A is the whole radiating surface, not one side counted twice.</p>
+        <p class="situation" id="situation"></p>
+        <p class="eq-hint" id="eq-hint"></p>
+      </section>
+
+      <section class="panel" aria-labelledby="metric-heading">
+        <h2 id="metric-heading">Live metrics</h2>
+        <div class="metrics">
+          <article class="metric">
+            <span class="accent" id="swatch-chip"></span>
+            <div>
+              <h3 title="Temperature of the lumped chip node">Chip temperature</h3>
+              <p class="value" id="m-chip">25.00 °C</p>
+              <p class="sub" id="m-chip-k">298.15 K</p>
+            </div>
+          </article>
+          <article class="metric">
+            <span class="accent" id="swatch-rad"></span>
+            <div>
+              <h3 title="Temperature of the radiator node">Radiator temperature</h3>
+              <p class="value" id="m-rad">25.00 °C</p>
+              <p class="sub" id="m-rad-k">298.15 K</p>
+            </div>
+          </article>
+          <article class="metric">
+            <span class="accent" style="background:#f0a35e"></span>
+            <div>
+              <h3 title="Chip count times power per chip times the effective workload. All of it becomes heat.">Electrical power</h3>
+              <p class="value" id="m-power">800.0 W</p>
+              <p class="sub" id="m-power-sub">converted entirely to heat</p>
+            </div>
+          </article>
+          <article class="metric">
+            <span class="accent" style="background:#ff8d4a"></span>
+            <div>
+              <h3 title="Conduction from the chip node to the radiator, G times the temperature difference.">Heat to radiator</h3>
+              <p class="value" id="m-q">0.0 W</p>
+              <p class="sub" id="m-q-sub">chips to radiator</p>
+            </div>
+          </article>
+          <article class="metric">
+            <span class="accent" style="background:#6fd4e8"></span>
+            <div>
+              <h3 title="Net infrared power leaving the radiator toward the 3 K background.">Radiative rejection</h3>
+              <p class="value" id="m-radp">0.0 W</p>
+              <p class="sub" id="m-radp-sub">net heat leaving the spacecraft</p>
+            </div>
+          </article>
+          <article class="metric">
+            <span class="accent" id="swatch-load" style="background:#3dd68c"></span>
+            <div>
+              <h3 title="Effective workload after the proportional throttle.">Workload fraction</h3>
+              <p class="value" id="m-workload">100.0%</p>
+              <p class="sub" id="m-workload-sub">matching the command</p>
+            </div>
+          </article>
+          <article class="metric">
+            <span class="accent" id="swatch-margin" style="background:#3dd68c"></span>
+            <div>
+              <h3 title="Configured limit minus the current chip temperature.">Temperature margin</h3>
+              <p class="value ok" id="m-margin">60.00 °C</p>
+              <p class="sub" id="m-margin-sub">spare below the limit</p>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <section class="charts" aria-label="Time histories">
+      <article class="panel chart-card">
+        <h2>Temperature</h2>
+        <p class="hint">Chip and radiator temperature against spacecraft time. The limit is drawn when it sits near the data.</p>
+        <svg id="chart-temp" viewBox="0 0 720 300" role="img" aria-label="Chip and radiator temperature versus time"></svg>
+      </article>
+      <article class="panel chart-card">
+        <h2>Heat flows</h2>
+        <p class="hint">Chip heat generation against net infrared rejection. They meet at equilibrium. They differ while the nodes are storing or releasing heat.</p>
+        <svg id="chart-power" viewBox="0 0 720 300" role="img" aria-label="Heat generation and radiative rejection versus time"></svg>
+      </article>
+    </section>
+
+    <section class="panel block" aria-labelledby="preset-heading">
+      <h2 id="preset-heading">Experiment presets</h2>
+      <p class="hint">Each preset restores the illustrative defaults, then sets the radiator area. Loading one resets the clock and the temperatures.</p>
+      <div class="presets">
+        <article class="preset active" data-preset="baseline">
+          <header><h3>Baseline</h3><span class="tag">4 m²</span></header>
+          <p>Four chips at 200 W on a 4 m² panel with emissivity 0.90. The equilibrium has a large margin under 85 °C, so the array holds full workload. From room temperature the radiator cools, after a brief chip rise while the thermal link catches up.</p>
+          <p class="preset-eq" id="eq-baseline"></p>
+          <button type="button" data-load="baseline">Load and reset</button>
+        </article>
+        <article class="preset" data-preset="undersized">
+          <header><h3>Undersized radiator</h3><span class="tag">1 m²</span></header>
+          <p>The same chips and the same emissivity, with only 1 m². The unthrottled chips would pass the limit, so the controller sheds a few percent of workload and holds the node just under 85 °C. Raise the chip power if you want a deeper cut.</p>
+          <p class="preset-eq" id="eq-undersized"></p>
+          <button type="button" data-load="undersized">Load and reset</button>
+        </article>
+        <article class="preset" data-preset="improved">
+          <header><h3>Improved radiator</h3><span class="tag">8 m²</span></header>
+          <p>The same chips on 8 m². More area lowers the equilibrium temperature and widens the margin. The mass and the stowed volume of that panel are outside this model.</p>
+          <p class="preset-eq" id="eq-improved"></p>
+          <button type="button" data-load="improved">Load and reset</button>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel block" aria-labelledby="compare-heading">
+      <h2 id="compare-heading">Compare two configurations</h2>
+      <p class="hint">Both runs are integrated to their own duration without disturbing the live simulation. Useful computation is the electrical energy delivered to the chips, which this model treats as proportional to completed work.</p>
+      <div class="compare-setup">
+        <div>
+          <label class="select-label" for="cmp-a">Configuration A</label>
+          <select id="cmp-a">
+            <option value="baseline" selected>Baseline</option>
+            <option value="undersized">Undersized radiator</option>
+            <option value="improved">Improved radiator</option>
+            <option value="current">Current settings</option>
+          </select>
+          <p class="meta" id="cmp-a-meta"></p>
+        </div>
+        <div>
+          <label class="select-label" for="cmp-b">Configuration B</label>
+          <select id="cmp-b">
+            <option value="baseline">Baseline</option>
+            <option value="undersized" selected>Undersized radiator</option>
+            <option value="improved">Improved radiator</option>
+            <option value="current">Current settings</option>
+          </select>
+          <p class="meta" id="cmp-b-meta"></p>
+        </div>
+        <button type="button" id="cmp-run">Run comparison</button>
+      </div>
+      <p class="hint" id="cmp-empty">Choose two configurations and run them to the end. A 60 minute case finishes immediately.</p>
+      <div class="table-wrap" id="cmp-table-wrap" hidden>
+        <table>
+          <caption class="hint" id="cmp-caption"></caption>
+          <thead>
+            <tr>
+              <th scope="col">Metric</th>
+              <th scope="col" class="num" id="cmp-head-a">A</th>
+              <th scope="col" class="num" id="cmp-head-b">B</th>
+              <th scope="col" class="num">B − A</th>
+            </tr>
+          </thead>
+          <tbody id="cmp-body"></tbody>
+        </table>
+        <p class="readout" id="cmp-readout" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <details class="panel block physics" open>
+      <summary id="physics-heading">Understanding the physics</summary>
+      <div class="physics-body">
+        <p class="banner"><strong>Model, not a measurement.</strong> The differential equations below are the simulator. The numerical values in the controls are illustrative. They are not Google’s satellite, and they are not a qualified thermal design.</p>
+
+        <h3>1. Convection does not work in a vacuum</h3>
+        <p>A terrestrial heatsink hands heat to moving air. The air carries that energy away and is replaced. On orbit the surrounding gas density is so low that there is no stream to carry heat. Fans, fins, and open racks lose the mechanism they rely on. Conduction still works inside the spacecraft, through boards, straps, heat pipes, and joints. It can move heat to a surface. It cannot, by itself, throw that heat overboard.</p>
+
+        <h3>2. Thermal radiation is the rejection path</h3>
+        <p>Every surface emits electromagnetic radiation. Net power depends on how well the surface emits, how large it is, and the fourth power of its absolute temperature, minus what it absorbs from whatever it can see. Deep space is an extremely cold sink. In this simplified background that sink is 3 K, so a warm radiator has a large net loss. That loss is the heat-rejection path in the model.</p>
+
+        <h3>3. The Stefan–Boltzmann law</h3>
+        <p>A gray surface with emissivity ε and effective area A exchanges heat with a black background at T_space according to</p>
+        <pre class="eq">P_radiated = ε σ A (T_radiator⁴ − T_space⁴)
+σ = 5.670374419 × 10⁻⁸ W·m⁻²·K⁻⁴
+T_space = 3 K</pre>
+        <p>The temperatures in that expression are kelvin. The dashboard converts to Celsius only for display. Using Celsius inside the fourth power is not a small unit mistake: 25 °C fed in as if it were 25 K understates the emission by about four orders of magnitude. σ is the CODATA value. The law itself is established physics. Choosing a single background temperature of 3 K, and folding every view factor into A, are modelling choices.</p>
+        <p>A is the total effective radiating area, counted once. A panel that truly radiates from both sides is entered as the sum of those sides. Do not also multiply by two.</p>
+
+        <h3>4. Why area and emissivity matter</h3>
+        <p>At a fixed temperature, radiated power is proportional to both ε and A. A larger or blacker radiator rejects more heat without running hotter, so the same chip load equilibrates colder. Emissivity here is the infrared value that sets emission. Solar absorptance is not a separate input. If the panel absorbs sunlight, albedo, or Earth infrared, add that power to the environmental heat load. Leaving that load at 0 W is the shadowed-radiator idealisation. It is not a claim that every orbit is dark. The solar constant near Earth is about 1361 W/m², so an unshaded surface can absorb far more than these chips produce.</p>
+
+        <h3>5. Why thermal capacitance only affects the rate</h3>
+        <p>Capacitance C is the energy required to raise a node by one kelvin, in J/K. It multiplies the time derivative, so it sets how quickly temperature moves. It cancels out of the steady state. Two radiators with the same area, emissivity, and heat load reach the same final temperature. The heavier one takes longer. That is why the equilibrium prediction on the diagram does not change when you drag the capacitance sliders, while the chart clearly does.</p>
+
+        <h3>6. Why throttling is necessary</h3>
+        <p>If the chips dissipate more than the radiator can reject at the allowed temperature, energy accumulates and the temperature climbs through the limit. There is no airflow to provide an extra term. The controller is the bound. Across the 2 °C below the configured maximum, the commanded workload is multiplied by a factor that falls from 1 to 0. At the limit the chip heat is fully cut. The “throttling” indication stays on for another 0.5 °C of cooling so the label does not flicker as the node sits on the boundary. The heat load itself has no jump. This is a transparent proportional law for the study, not a flight computer. If environmental heat alone holds the chips above the limit, the controller goes to zero workload and the display says the limit is still exceeded. It does not pretend the radiator can do something it cannot.</p>
+
+        <h3>Governing equations</h3>
+        <pre class="eq">Q = G (T_chip − T_radiator)
+
+C_chip     dT_chip/dt     = P_heat − Q
+C_radiator dT_radiator/dt = Q + P_environment − P_radiated
+
+P_heat     = N_chips · P_chip · f
+P_radiated = ε σ A (T_radiator⁴ − T_space⁴)
+
+f = f_commanded · φ(T_chip)
+φ = 1                         when T_chip ≤ T_max − 2 K
+φ = (T_max − T_chip) / 2 K    between the band edges
+φ = 0                         when T_chip ≥ T_max</pre>
+
+        <table class="vars">
+          <thead>
+            <tr><th scope="col">Symbol</th><th scope="col">Meaning</th><th scope="col">Unit</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>T_chip</td><td>Lumped temperature of the chip node</td><td>K</td></tr>
+            <tr><td>T_radiator</td><td>Lumped temperature of the radiator node</td><td>K</td></tr>
+            <tr><td>T_space</td><td>Effective background temperature, fixed at 3 K</td><td>K</td></tr>
+            <tr><td>T_max</td><td>Configured chip operating limit</td><td>K</td></tr>
+            <tr><td>C_chip</td><td>Thermal capacitance of the chip node</td><td>J/K</td></tr>
+            <tr><td>C_radiator</td><td>Thermal capacitance of the radiator node</td><td>J/K</td></tr>
+            <tr><td>G</td><td>Effective conductance between the nodes</td><td>W/K</td></tr>
+            <tr><td>Q</td><td>Heat flow from chips to radiator</td><td>W</td></tr>
+            <tr><td>P_chip</td><td>Electrical power of one chip at full workload</td><td>W</td></tr>
+            <tr><td>N_chips</td><td>Number of chips in the lumped node</td><td>—</td></tr>
+            <tr><td>f</td><td>Effective workload fraction after throttling</td><td>—</td></tr>
+            <tr><td>P_heat</td><td>Heat released in the chip node</td><td>W</td></tr>
+            <tr><td>P_environment</td><td>External heat absorbed by the radiator</td><td>W</td></tr>
+            <tr><td>P_radiated</td><td>Net radiative heat rejection</td><td>W</td></tr>
+            <tr><td>ε</td><td>Radiator emissivity</td><td>—</td></tr>
+            <tr><td>A</td><td>Total effective radiating area</td><td>m²</td></tr>
+            <tr><td>σ</td><td>Stefan–Boltzmann constant</td><td>W·m⁻²·K⁻⁴</td></tr>
+            <tr><td>φ</td><td>Proportional throttle factor</td><td>—</td></tr>
+          </tbody>
+        </table>
+
+        <div class="split">
+          <article class="callout law">
+            <h3>Established physics used here</h3>
+            <p>Conservation of energy on each lumped node. Conduction written as Q = G ΔT. The Stefan–Boltzmann law for net emission from a gray surface to a black background.</p>
+          </article>
+          <article class="callout assumption">
+            <h3>Assumptions of this model</h3>
+            <p>Two isothermal nodes stand in for the chips and the radiator. Every watt the chips draw becomes heat. The radiator is shielded from direct sunlight. Environmental heating is the number you type, not an orbit. View factors are already folded into A. The sink is a single temperature. There is no survival heater and no eclipse clock. The throttle is the band above, not a flight algorithm.</p>
+          </article>
+        </div>
+
+        <h3>How the equations are integrated</h3>
+        <p>The pair of ordinary differential equations is advanced with the classical fourth-order Runge–Kutta method. The step is shortened so that a substep changes a node by about 0.3 K, and so that it stays under about a fifth of the local thermal time constant. The throttle factor is held constant during a step and updated between steps. Temperatures are kept above 0 K. A non-physical trial step is rejected and retried at half the size rather than being allowed to produce NaN or a negative absolute temperature.</p>
+      </div>
+    </details>
+
+    <footer class="footer">
+      <p>RK4 integration of the two-node model. σ = 5.670374419×10⁻⁸ W·m⁻²·K⁻⁴. Background temperature 3 K. Screen temperatures are Celsius. The radiation law uses kelvin.</p>
+      <p>Illustrative parameters only. Not a reproduction of any operational satellite.</p>
+    </footer>
+  </div>
+  <script src="simulation.js"></script>
+  <script src="ui.js"></script>
+</body>
+</html>
