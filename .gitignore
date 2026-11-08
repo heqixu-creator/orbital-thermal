@@ -7,3 +7,7 @@ node_modules/
 *.swp
 .cache/
 agent-tools/
+.env
+.env.*
+*.pem
+*.key

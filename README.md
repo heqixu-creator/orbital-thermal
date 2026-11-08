@@ -6,6 +6,8 @@ There is no airflow in vacuum. The model asks a specific question. At a given ch
 
 **These are illustrative parameters, not a flight specification.** Nothing in this repository reproduces Google’s satellite hardware, or the design of any other real spacecraft. The chip power, the radiator size, and the thermal masses are round numbers chosen so the physics is easy to inspect.
 
+The temperatures this simulator prints are illustrative teaching calculations. They are not validated spacecraft thermal-design predictions, and they are not accurate enough to use for spacecraft engineering or mission design.
+
 The page is static. Open `index.html` in a browser, or host the folder with any file server, including GitHub Pages.
 
 ## Scientific motivation
@@ -191,6 +193,8 @@ The comparison panel integrates two configurations to their own durations withou
 Two further checks sit in the same script. A one-hour baseline closes the energy balance to a residual of a fraction of a joule on a stored-energy change of about 5.5×10⁵ J. The same closure holds while the throttle is moving. Corner combinations of the allowed ranges stay finite and above 0 K. A direct evaluation also confirms that 25 °C is not being inserted into the fourth power: the default panel at 25 °C emits about 1.6 kW, not a fraction of a watt.
 
 ## Known limitations
+
+The numerical results are teaching calculations for this two-node model. They are not a substitute for a qualified spacecraft thermal analysis.
 
 - Two nodes cannot show gradients across a chip, a heat pipe, or a radiator fin.
 - The environmental term is a number, not a solar-aspect, albedo, or planetary-infrared calculation. Eclipses are not on a clock.
